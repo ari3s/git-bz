@@ -289,6 +289,34 @@ Firefox 3, Epiphany and Galeon are supported, and only on Linux. Patches to
 add more support and to allow configuring username/password directly
 per bug tracker accepted.
 
+ATTACHMENT FLAGS
+----------------
+
+When editing the description of an attachment with 'git-bz attach -e'
+it is possible to set flag values, depending on the configuration of
+the bug tracker. However, it is first necessary to configure the flag
+types available for your bug tracker. Ask the administrator of the
+tracker or inspect the HTML source code of the attachment.cgi
+page. For each flag you need to configure its id and whether or not it
+is requesteeable (eg. if you can ask for a specific bugzilla user to
+update the flag). Here is a sample configuration:
+
+----------------------------------------
+attachment-flag.review.id = 1
+attachment-flag.review.requesteeable = false
+----------------------------------------
+
+With the above flag configuration, when editing an attachment
+description you should see a template allowing setting the flag:
+
+----------------------------------------
+# Uncomment to set flags for the attachment; flags can be set to +,- , or ?.
+# When setting a flag to ? you can optionally specify individuals as, for example:
+#    review: ? joe@example.com
+#review: ?
+----------------------------------------
+
+
 BUG REFERENCES
 --------------
 On the command line, there are multiple ways to refer to a bug:

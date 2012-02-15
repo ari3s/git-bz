@@ -73,6 +73,15 @@ CONFIG['bugzilla.redhat.com'] = \
 https = true
 """
 
+CONFIG["bugs.webkit.org"] = \
+"""
+https = true
+attachment-flag.review.id = 1
+attachment-flag.review.requesteeable = false
+attachment-flag.commit-queue.id = 3
+attachment-flag.commit-queue.requesteeable = false
+"""
+
 # Default values for options that can be configured via 'git config'
 git_config = {
     'browser': 'firefox3',
@@ -331,33 +340,36 @@ def resolve_host_alias(alias):
     except CalledProcessError:
         return alias
 
-def split_local_config(config_text):
-    result = {}
+def add_config_param(param, value, result):
+        param_parts = param.split(".")
+        param_parts.reverse()
+        param_dict = result
+        while len(param_parts) > 1:
+            part = param_parts.pop()
+            if not part in param_dict or not isinstance(param_dict[part], dict):
+                param_dict[part] = {}
+            param_dict = param_dict[part]
+        param_dict[param_parts[0]] = value
 
+def add_config_from_string(config_text, result):
     for line in config_text.split("\n"):
         line = re.sub("#.*", "", line)
         line = line.strip()
         if line == "":
             continue
-        m = re.match("([a-zA-Z0-9-]+)\s*=\s*(.*)", line)
+        m = re.match("([a-zA-Z0-9-\.]+)\s*=\s*(.*)", line)
         if not m:
             die("Bad config line '%s'" % line)
 
-        param = m.group(1)
-        value = m.group(2)
+        add_config_param(m.group(1), m.group(2), result)
 
-        result[param] = value
-
-    return result
-
-def get_git_config(name):
+def add_config_from_git(name, result):
     try:
         name = name.replace(".", r"\.")
         config_options = git.config(r'bz-tracker\.' + name + r'\..*', get_regexp=True)
     except CalledProcessError:
         return {}
 
-    result = {}
     for line in config_options.split("\n"):
         line = line.strip()
         m = re.match("(\S+)\s+(.*)", line)
@@ -367,9 +379,7 @@ def get_git_config(name):
         m = re.match(r'bz-tracker\.' + name + r'\.(.*)', key)
         param = m.group(1)
 
-        result[param] = value
-
-    return result
+        add_config_param(param, value, result)
 
 # We only ever should be the config for one tracker in the course of a single run
 cached_config = None
@@ -382,10 +392,11 @@ def get_config(tracker):
     if cached_config == None:
         cached_config_tracker = tracker
         host = resolve_host_alias(tracker)
-        cached_config = split_local_config(DEFAULT_CONFIG)
+        cached_config = {}
+        add_config_from_string(DEFAULT_CONFIG, cached_config)
         if host in CONFIG:
-            cached_config.update(split_local_config(CONFIG[host]))
-        cached_config.update(get_git_config(host))
+            add_config_from_string(CONFIG[host], cached_config)
+        add_config_from_git(host, cached_config)
         if tracker != host:
             cached_config.update(get_git_config(tracker))
 
@@ -1289,7 +1300,7 @@ class Bug(object):
         print "Bug %d - %s" % (self.id, short_desc)
         print self.get_url()
 
-    def create_patch(self, description, comment, filename, data, obsoletes=[], status='none'):
+    def create_patch(self, description, comment, filename, data, obsoletes=[], status='none', flags={}):
         # Bugzilla 4.2+ requires you to grab a fresh token from attachment.cgi.
         url = "/attachment.cgi?bugid=" + str(self.id) + "&action=enter"
 
@@ -1318,6 +1329,8 @@ class Bug(object):
             # this will produce multiple parts in the encoded data with the
             # name 'obsolete' for each item in the list
             fields['obsolete'] = map(str, obsoletes)
+
+        fields.update(flags)
 
         files = {
             'data': (
@@ -1818,6 +1831,17 @@ def edit_attachment_comment(bug, initial_description, initial_body):
             template.write("%sObsoletes: %d - %s\n" % ("" if obsoleted else "#", patch.attach_id, patch.description))
         template.write("\n")
 
+    config = get_config(get_tracker())
+    attachment_flags = config.get('attachment-flag', {})
+    flag_names = attachment_flags.keys()
+    if flag_names:
+        template.write("""# Uncomment to set flags for the attachment; flags can be set to +,- , or ?.\n""")
+        template.write("""# When setting a flag to ? you can optionally specify individuals as, for example:
+#    Review: ? joe@example.com\n""")
+        for name in flag_names:
+            template.write("""#%s: ?\n""" % name)
+        template.write("\n")
+
     template.write("""# Please edit the description (first line) and comment (other lines). Lines
 # starting with '#' will be ignored.  Delete everything to abort.
 """)
@@ -1837,12 +1861,59 @@ def edit_attachment_comment(bug, initial_description, initial_body):
 
     lines = filter(filter_obsolete, lines)
 
+    flags = {}
+    def filter_flags(line):
+        # Lookup for a known attachment flag in the line. It has to be
+        # at the beginning of the line.
+        m = re.match(r'^\s*([^ ,]+)\s*:\s*([+-?].*?)\s*$', line)
+        if not m:
+            return True
+
+        flag_name = m.group(1)
+        # If there's something that looks like a flag format in the commit message
+        # - say someone writes "Yay :-)" - we dont' want to produce a confusing
+        # error message, so hope nobody accidentally edits a real flag name when
+        # uncommenting it.
+        if not flag_name in attachment_flags:
+            return True
+
+        value = m.group(2)
+
+        # Flag found, check its value and build the form data
+        # that bugzilla will be able to understand.
+        flag_config = attachment_flags[flag_name]
+        requesteeable = flag_config.get('requesteeable', 'false')
+
+        if len(value) > 1:
+            extra = value[1:].strip()
+
+            if requesteeable != 'true':
+                print "Flag '%s' cannot be requested for a specific user. Ignoring '%s' and setting flag to fallback value: '?'." % (flag_name, extra)
+                value = '?'
+            elif not value.startswith('?'):
+                print "A specific user can only be requested for the '?' status. Ignoring '%s'." % extra
+                value = value[0]
+            else:
+                requestees = [r.strip() for r in value[1:].split(',')]
+                if len(requestees) > 1:
+                    ignored_requestees = requestees[1:]
+                    print "Flag '%s' cannot be requested for multiple users. Ignoring '%s' and setting value to '%s'" % (flag_name,
+                                                                                                                         ', '.join(ignored_requestees),
+                                                                                                                         requestees[0])
+                flags["requestee_type-%s" % flag_config['id']] = requestees[0]
+                value = '?'
+
+        flags["flag_type-%s" % flag_config['id']] = value
+        return False
+
+    lines = filter(filter_flags, lines)
+
     description, comment = split_subject_body(lines)
 
     if description == "":
         die("Empty description, aborting")
 
-    return description, comment, obsoletes
+    return description, comment, obsoletes, flags
 
 def attach_commits(bug, commits, include_comments=True, edit_comments=False, status='none'):
     # We want to attach the patches in chronological order
@@ -1857,15 +1928,16 @@ def attach_commits(bug, commits, include_comments=True, edit_comments=False, sta
         else:
             body = None
         if edit_comments:
-            description, body, obsoletes = edit_attachment_comment(bug, commit.subject, body)
+            description, body, obsoletes, flags = edit_attachment_comment(bug, commit.subject, body)
         else:
             description = commit.subject
             obsoletes = []
+            flags = {}
             for attachment in bug.patches:
                 if attachment.description == commit.subject:
                     obsoletes.append(attachment.attach_id)
 
-        bug.create_patch(description, body, filename, patch, obsoletes=obsoletes, status=status)
+        bug.create_patch(description, body, filename, patch, obsoletes=obsoletes, status=status, flags=flags)
 
 def do_attach(*args):
     if len(args) == 1:
