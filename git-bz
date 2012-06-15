@@ -1682,7 +1682,10 @@ def do_apply(*args):
                 patches.append(patch)
 
         for patch in patches:
-            print "%d - %s" % (patch.attach_id, patch.description)
+            if patch.status == 'accepted-commit_now' or patch.status == 'accepted-commit_after_freeze':
+                print "%d (%s) - %s" % (patch.attach_id, patch.status, patch.description)
+            else:
+                print "%d - %s" % (patch.attach_id, patch.description)
         print
         opt = prompt_multi("Apply? [(y)es, (n)o, (i)nteractive]", ["y", "n", "i"])
 
@@ -1695,6 +1698,8 @@ def do_apply(*args):
                 patches_by_id[patch.attach_id] = patch
                 if patch.status == 'committed' or patch.status == 'rejected':
                     template.write("#%d - %s (%s)\n" % (patch.attach_id, patch.description, patch.status))
+                elif patch.status == 'accepted-commit_now' or patch.status == 'accepted-commit_after_freeze':
+                    template.write("%d - %s (%s)\n" % (patch.attach_id, patch.description, patch.status))
                 else:
                     template.write("%d - %s\n" % (patch.attach_id, patch.description))
             template.write("\n")
