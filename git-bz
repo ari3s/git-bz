@@ -586,7 +586,7 @@ def get_cookies_from_sqlite(host, cookies_sqlite, browser, query, chromium_time=
 
 def get_cookies_from_sqlite_xulrunner(host, cookies_sqlite, name):
     return get_cookies_from_sqlite(host, cookies_sqlite, name,
-                                   "select name,value,path,expiry from moz_cookies where host = :host")
+                                   "select name,value,path,expiry from moz_cookies where host in (:host, '.'||:host)")
 
 def get_bugzilla_cookies_ff3(host):
     profiles_dir = os.path.expanduser('~/.mozilla/firefox')
@@ -643,7 +643,7 @@ def get_bugzilla_cookies_chr(host, browser, config_dir):
     if not os.path.exists(cookies_sqlite):
         raise CookieError("%s doesn't exist" % cookies_sqlite)
     return get_cookies_from_sqlite(host, cookies_sqlite, browser,
-                                   "select name,value,path,expires_utc from cookies where host_key = :host",
+                                   "select name,value,path,expires_utc from cookies where host_key in (:host, '.'||:host)",
                                    chromium_time=True)
 
 def get_bugzilla_cookies_chromium(host):
