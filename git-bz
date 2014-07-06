@@ -84,6 +84,7 @@ import base64
 import cPickle as pickle
 from ConfigParser import RawConfigParser, NoOptionError
 import httplib
+import io
 import optparse
 import os
 try:
@@ -123,6 +124,7 @@ global_options = None
 #       _interactive: Don't capture stdout and stderr
 #       _input=<str>: Feed <str> to stdinin of the command
 #       _return_error: Return tuple of captured (stdout,stderr)
+#       _bytes: Do not decode the output as UTF-8; leave it as raw bytes
 #
 def git_run(command, *args, **kwargs):
     to_run = ['git', command.replace("_", "-")]
@@ -132,6 +134,8 @@ def git_run(command, *args, **kwargs):
     input = None
     return_stderr = False
     strip = True
+    bytes = False
+
     for (k,v) in kwargs.iteritems():
         if k == '_quiet':
             quiet = True
@@ -143,6 +147,8 @@ def git_run(command, *args, **kwargs):
             strip = v
         elif k == '_input':
             input = v
+        elif k == '_bytes':
+            bytes = v
         elif v is True:
             if len(k) == 1:
                 to_run.append("-" + k)
@@ -158,6 +164,7 @@ def git_run(command, *args, **kwargs):
                     stderr=(None if interactive else PIPE),
                     stdin=(PIPE if (input != None) else None))
     output, error = process.communicate(input)
+
     if process.returncode != 0:
         if not quiet and not interactive:
             # Using print here could result in Python adding a stray space
@@ -169,6 +176,11 @@ def git_run(command, *args, **kwargs):
     if interactive:
         return None
     else:
+        # Decode the output as UTF-8.
+        if not bytes:
+            output = output.decode('UTF-8')
+            error = error.decode('UTF-8')
+
         if strip:
             output = output.strip()
             error = error.strip()
@@ -195,6 +207,7 @@ class GitCommit:
 def rev_list_commits(*args, **kwargs):
     kwargs_copy = dict(kwargs)
     kwargs_copy['pretty'] = 'format:%s'
+    kwargs_copy['encoding'] = 'UTF-8'
     output = git.rev_list(*args, **kwargs_copy)
     if output == "":
         lines = []
@@ -235,16 +248,18 @@ def get_patch(commit):
     # We could pass through -M as an option, but I think you basically always
     # want it; showing renames as renames rather than removes/adds greatly
     # improves readability.
-    return git.format_patch(commit.id + "^.." + commit.id, stdout=True, M=True)
+    return git.format_patch(commit.id + "^.." + commit.id, stdout=True, M=True,
+                            _bytes=True)
 
 def get_body(commit):
-    body = git.log(commit.id + "^.." + commit.id, pretty="format:%b", _strip=False)
+    body = git.log(commit.id + "^.." + commit.id, pretty="format:%b", _strip=False,
+                   encoding='UTF-8')
     # Preserve leading space, which tends to be indents, but strip off
     # the trailing newline and any other insignificant space at the end.
     return body.rstrip()
 
 def commit_is_merge(commit):
-    contents = git.cat_file("commit", commit.id)
+    contents = git.cat_file("commit", commit.id, _bytes=True)
     parent_count = 0
     for line in contents.split("\n"):
         if line == "":
@@ -690,6 +705,7 @@ Possible browsers: %s""" %
             (str(e), browser, browser_list()))
 
 # Based on http://code.activestate.com/recipes/146306/ - Wade Leftwich
+# fields are taken and encoded as UTF-8. files are never transcoded.
 def encode_multipart_formdata(fields, files=None):
     """
     fields is a dictionary of { name : value } for regular form fields. if value is a list,
@@ -707,12 +723,12 @@ def encode_multipart_formdata(fields, files=None):
                 L.append('--' + BOUNDARY)
                 L.append('Content-Disposition: form-data; name="%s"' % key)
                 L.append('')
-                L.append(v)
+                L.append(v.encode('UTF-8'))
         else:
             L.append('--' + BOUNDARY)
             L.append('Content-Disposition: form-data; name="%s"' % key)
             L.append('')
-            L.append(value)
+            L.append(value.encode('UTF-8'))
     if files:
         for key in sorted(files.keys()):
             (filename, content_type, value) = files[key]
@@ -793,7 +809,8 @@ def edit_template(template):
 
     edit_file(filename)
 
-    f = open(filename, "r")
+    # Use io.open() to get encoding support
+    f = io.open(filename, "r", encoding="UTF-8")
     lines = filter(lambda x: not x.startswith("#"), f.readlines())
     f.close()
 
@@ -1281,7 +1298,13 @@ class Bug(object):
             # name 'obsolete' for each item in the list
             fields['obsolete'] = map(str, obsoletes)
 
-        files = { 'data': (filename, 'text/plain; charset=UTF-8', data) }
+        files = {
+            'data': (
+                filename.encode('UTF-8'),
+                'text/plain',
+                data  # pass through as raw bytes
+            )
+        }
 
         response = self.server.send_post("/attachment.cgi", fields, files)
         response_data = response.read()
@@ -1478,7 +1501,7 @@ def add_url_to_head_commit(commit, bug):
     subject, body = add_url_to_subject_body(subject, body, bug)
 
     input = subject + "\n\n" + body
-    git.commit(file="-", amend=True, _input=input)
+    git.commit(file="-", amend=True, _input=input.encode('UTF-8'))
 
 def add_url(bug, commits):
     commit_map = {}
