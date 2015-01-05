@@ -431,7 +431,7 @@ git config --global bz-tracker.bugzilla.gnome.org.default-severity trivial
 In general, settings that are necessary to make a popular bugzilla instance
 work should be submitted back to me and go in the CONFIG variable.
 
-Author
-------
+AUTHORS
+-------
 Written by Owen Taylor <otaylor@fishsoup.net>.
 
