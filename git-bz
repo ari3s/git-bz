@@ -84,7 +84,6 @@ import base64
 import cPickle as pickle
 from ConfigParser import RawConfigParser, NoOptionError
 import errno
-import httplib
 import io
 import optparse
 import os
@@ -102,6 +101,7 @@ import time
 import traceback
 import xmlrpclib
 import urllib
+import urllib2
 import urlparse
 from xml.etree.cElementTree import ElementTree
 import base64
@@ -905,20 +905,6 @@ class BugPatch(object):
 class NoXmlRpcError(Exception):
     pass
 
-connections = {}
-
-def get_connection(host, https):
-    identifier = (host, https)
-    if not identifier in connections:
-        if https:
-            connection = httplib.HTTPSConnection(host, 443)
-        else:
-            connection = httplib.HTTPConnection(host, 80)
-
-        connections[identifier] = connection
-
-    return connections[identifier]
-
 class BugServer(object):
     def __init__(self, host, path, https, auth_user=None, auth_password=None):
         self.host = host
@@ -947,71 +933,19 @@ class BugServer(object):
         if self.path:
             url = self.path + url
 
-        seen_urls = []
-        connection = get_connection(self.host, self.https)
-        while True:
-            connection.request(method, url, data, headers)
-            response = connection.getresponse()
-            seen_urls.append(url)
+        uri = "%s://%s%s" % ("https" if self.https else "http", self.host, url);
+        req = urllib2.Request(uri, data, headers)
 
-            # Redirect status codes:
-            #
-            # 301 (Moved Permanently): Redo with the new URL,
-            #   save the new location.
-            # 303 (See Other): Redo with the method changed to GET/HEAD.
-            # 307 (Temporary Redirect): Redo with the new URL, don't
-            #   save the new location.
-            #
-            # [ For 301/307, you are supposed to ask the user if the
-            #   method isn't GET/HEAD, but we're automating anyways... ]
-            #
-            # 302 (Found): The confusing one, and the one that
-            # Bugzilla uses, both to redirect to http to https and to
-            # redirect attachment.cgi&action=view to a different base URL
-            # for security. Specified like 307, traditionally treated as 301.
-            #
-            # See http://en.wikipedia.org/wiki/HTTP_302
+        response = None
+        try:
+            response = urllib2.urlopen(req)
+        except urllib2.HTTPError as err:
+            raise err;
+        except urllib2.URLError as err:
+            die ("Failed to connect to bug: %s" % str(err.reason))
 
-            if response.status in (301, 302, 303, 307):
-                new_url = response.getheader("location")
-                if new_url is None:
-                    die("Redirect received without a location to redirect to")
-                if new_url in seen_urls or len(seen_urls) >= 10:
-                    die("Circular redirect or too many redirects")
+        return response
 
-                old_split = urlparse.urlsplit(url)
-                new_split = urlparse.urlsplit(new_url)
-
-                new_https = new_split.scheme == 'https'
-
-                if new_split.hostname != self.host or new_https != self.https:
-                    connection = get_connection(new_split.hostname, new_https != self.https)
-
-                    # This is a bit of a hack to avoid keeping on redirecting for every
-                    # request. If the server redirected show_bug.cgi we assume it's
-                    # really saying "hey, the bugzilla instance is really over here".
-                    #
-                    # We can't do this for old.split.path == new_split.path because of
-                    # attachment.cgi, though we alternatively could just exclude
-                    # attachment.cgi here.
-                    if (response.status in (301, 302) and
-                        method == 'GET' and
-                        old_split.path == '/show_bug.cgi' and new_split.path == '/show_bug.cgi'):
-
-                        self.host = new_split.hostname
-                        self.https = new_https
-
-                # We can't treat 302 like 303 because of the use of 302 for http
-                # to https, though the hack above will hopefully get us on https
-                # before we try to POST.
-                if response.status == 303:
-                    if method not in ('GET', 'HEAD'):
-                        method = 'GET'
-
-                # Get the relative component of the new URL
-                url = urlparse.urlunsplit((None, None, new_split.path, new_split.query, new_split.fragment))
-            else:
-                return response
 
     def send_post(self, url, fields, files=None):
         content_type, body = encode_multipart_formdata(fields, files)
@@ -1140,11 +1074,7 @@ def get_bug_server(host, path, https, auth_user, auth_password):
 # *args are regular expressions to search for in response_data
 # that indicate success. Returns the matched regular expression
 # on success, None otherwise
-def check_for_success(response, response_data, *args):
-
-    if response.status != 200:
-        return False
-
+def check_for_success(response_data, *args):
     for pattern in args:
         m = re.search(pattern, response_data)
         if m:
@@ -1166,9 +1096,10 @@ class Bug(object):
         if not attachmentdata:
             url += "&excludefield=attachmentdata"
 
-        response = self.server.send_request("GET", url)
-        if response.status != 200:
-            die ("Failed to retrieve bug information: %d" % response.status)
+        try:
+            response = self.server.send_request("GET", url)
+        except urllib2.HTTPError as err:
+            die ("Failed to retrieve bug information: %d" % err.code)
 
         etree = ElementTree()
         etree.parse(response)
@@ -1263,13 +1194,16 @@ class Bug(object):
         if not 'bug_file_loc' in fields:
             fields['bug_file_loc'] = ''
 
-        response = self.server.send_post("/post_bug.cgi", fields)
-        response_data = response.read()
-        m = check_for_success(response, response_data,
-                              r"<title>\s*Bug\s+([0-9]+)")
+        try:
+            response = self.server.send_post("/post_bug.cgi", fields)
+            response_data = response.read()
+        except urllib2.HTTPError as err:
+            die("Failed to create bug, status=%d" % err.code);
+
+        m = check_for_success(response_data, r"<title>\s*Bug\s+([0-9]+)")
         if not m:
             print response_data
-            die("Failed to create bug, status=%d" % response.status)
+            die("Failed to create bug")
 
         self.id = int(m.group(1))
 
@@ -1321,15 +1255,19 @@ class Bug(object):
             )
         }
 
-        response = self.server.send_post("/attachment.cgi", fields, files)
-        response_data = response.read()
-        if not check_for_success(response, response_data,
+        try:
+            response = self.server.send_post("/attachment.cgi", fields, files)
+            response_data = response.read()
+        except urllib2.HTTPError as err:
+            die ("Failed to attach patch to bug %d, status=%d" % (self.id, err.code))
+
+        if not check_for_success(response_data,
                                  # Older bugzilla's used this for successful attachments
                                  r"<title>\s*Changes\s+Submitted",
                                  # Newer bugzilla's, use, instead:
                                  r"<title>\s*Attachment\s+\d+\s+added"):
             print response_data
-            die ("Failed to attach patch to bug %d, status=%d" % (self.id, response.status))
+            die ("Failed to attach patch to bug %d" % self.id)
 
         print "Attached %s" % filename
 
@@ -1342,16 +1280,20 @@ class Bug(object):
         # Since we don't send delta_ts we'll never get a mid-air collision
         # This is probably a good thing
 
-        response = self.server.send_post("/process_bug.cgi", changes)
-        response_data = response.read()
-        if not check_for_success(response, response_data,
+        try:
+            response = self.server.send_post("/process_bug.cgi", changes)
+            response_data = response.read()
+        except urllib2.HTTPError as err:
+            die ("Failed to update bug %d, status=%d" % (self.id, err.code))
+
+        if not check_for_success(response_data,
                                  r"<title>\s*Bug[\S\s]*processed\s*</title>"):
 
             # Mid-air collisions would be indicated by
             # "<title>Mid-air collision!</title>"
 
             print response_data
-            die ("Failed to update bug %d, status=%d" % (self.id, response.status))
+            die ("Failed to update bug %d" % self.id)
 
     # Update specified fields of an attachment; keyword arguments are
     # interpreted as field_name=value
@@ -1379,14 +1321,18 @@ class Bug(object):
                 field = 'attachments.status'
             fields[field] = value
 
-        response = self.server.send_post("/attachment.cgi", fields)
-        response_data = response.read()
-        if not check_for_success(response, response_data,
-                                 r"<title>\s*Changes\s+Submitted"):
-            print response_data
+        try:
+            response = self.server.send_post("/attachment.cgi", fields)
+            response_data = response.read()
+        except urllib2.HTTPError as err:
             die ("Failed to update attachment %d to bug %d, status=%d" % (patch.attach_id,
                                                                           self.id,
-                                                                          response.status))
+                                                                          err.code))
+        if not check_for_success(response_data,
+                                 r"<title>\s*Changes\s+Submitted"):
+            print response_data
+            die ("Failed to update attachment %d to bug %d" % (patch.attach_id,
+                                                               self.id))
 
     def get_url(self):
         return "%s://%s/show_bug.cgi?id=%d" % ("https" if self.server.https else "http",
