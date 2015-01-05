@@ -435,3 +435,7 @@ AUTHORS
 -------
 Written by Owen Taylor <otaylor@fishsoup.net>.
 
+REPORTING BUGS
+--------------
+Report bugs in the 'git-bz' product on bugzilla.gnome.org:
+https://bugzilla.gnome.org/enter_bug.cgi?product=git-bz
