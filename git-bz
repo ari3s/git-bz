@@ -83,6 +83,7 @@ git_config = {
 import base64
 import cPickle as pickle
 from ConfigParser import RawConfigParser, NoOptionError
+import errno
 import httplib
 import io
 import optparse
@@ -747,15 +748,29 @@ def encode_multipart_formdata(fields, files=None):
 # ===============================================
 
 CACHE_EXPIRY_TIME = 3600 * 24 # one day
+xdg_cache_home = os.environ.get('XDG_CACHE_HOME',
+                                os.path.join(os.path.expanduser('~'),
+                                             '.cache'))
+cache_filename = os.path.join(xdg_cache_home, 'git-bz-cache')
 
 class Cache(object):
     def __init__(self):
         self.cfp = None
 
     def __ensure(self, host):
+        # Ensure the cache directory exists.
+        cache_dir = os.path.dirname(cache_filename)
+        try:
+            os.makedirs(cache_dir, 0700)
+        except OSError as exc:
+            if exc.errno == errno.EEXIST and os.path.isdir(cache_dir):
+                pass
+            else:
+                raise
+
         if self.cfp == None:
             self.cfp = RawConfigParser()
-            self.cfp.read(os.path.expanduser("~/.git-bz-cache"))
+            self.cfp.read(cache_filename)
 
         if self.cfp.has_section(host):
             if time.time() > self.cfp.getfloat(host, "expires"):
@@ -775,7 +790,7 @@ class Cache(object):
     def set(self, host, key, value):
         self.__ensure(host)
         self.cfp.set(host, key, pickle.dumps(value))
-        f = open(os.path.expanduser("~/.git-bz-cache"), "w")
+        f = open(cache_filename, "w")
         self.cfp.write(f)
         f.close()
 
