@@ -245,7 +245,12 @@ def get_commits(commit_or_revision_range):
         commits = rev_list_commits(rev, max_count='1')
     except CalledProcessError:
         # If not, assume the argument is a range
-        commits = rev_list_commits(commit_or_revision_range)
+        try:
+            commits = rev_list_commits(commit_or_revision_range)
+        except CalledProcessError:
+            # If not again, the argument must be invalid — perhaps the user has
+            # accidentally specified a bug number but not a revision.
+            commits = []
 
     if len(commits) == 0:
         die("'%s' does not name any commits. Use HEAD to specify just the last commit" %
