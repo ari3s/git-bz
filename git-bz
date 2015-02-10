@@ -1245,9 +1245,25 @@ class Bug(object):
         print self.get_url()
 
     def create_patch(self, description, comment, filename, data, obsoletes=[], status='none'):
+        # Bugzilla 4.2+ requires you to grab a fresh token from attachment.cgi.
+        url = "/attachment.cgi?bugid=" + str(self.id) + "&action=enter"
+
+        try:
+            response = self.server.send_request("GET", url)
+        except KeyboardInterrupt:
+            die("Failed to retrieve attachment form: user cancelled")
+        if response.status != 200:
+            die("Failed to retrieve attachment form: %d" % response.status)
+
+        token = re.search(r'<input type="hidden" name="token" value="(.+)">',
+                          response.read())
+
+        # Build the new form.
         fields = {}
         fields['bugid'] = str(self.id)
         fields['action'] = 'insert'
+        if token is not None:
+            fields['token'] = token.group(1)
         fields['ispatch'] = '1'
         fields['attachments.status'] = status
         fields['description'] = description
