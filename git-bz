@@ -58,6 +58,7 @@ CONFIG['bugzilla.gnome.org'] = \
 """
 https = true
 default-priority = Normal
+default-platform = Other
 """
 
 CONFIG['bugzilla.mozilla.org'] = \
