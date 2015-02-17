@@ -58,7 +58,7 @@ CONFIG['bugzilla.gnome.org'] = \
 """
 https = true
 default-priority = Normal
-default-platform = Other
+default-platform =
 """
 
 CONFIG['bugzilla.mozilla.org'] = \
@@ -391,6 +391,11 @@ def merge_default_fields_from_dict(default_fields, d):
             param = key[8:].replace("-", "_")
             if param in ['tracker', 'product', 'component']:
                 continue
+
+            # Ignore empty fields
+            if value == '' and param in ['platform']:
+                continue
+
             default_fields[param] = value
 
 def get_default_fields(tracker):
