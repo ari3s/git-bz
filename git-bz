@@ -1192,6 +1192,14 @@ class Bug(object):
             response = self.server.get_xmlrpc_proxy().Bug.create(params)
             self.id = response['id']
         except xmlrpclib.Fault, e:
+            if e.faultString.find("is no version named '") > 0:
+                print >>sys.stderr, e.faultString
+                print >>sys.stderr
+                print >>sys.stderr, "You can configure a version for %s with:" % self.server.host
+                print >>sys.stderr
+                print >>sys.stderr, "   git config [--global] bz-tracker.%s.default-version <version>" % self.server.host
+                sys.exit(1)
+
             die(e.faultString)
         except xmlrpclib.ProtocolError, e:
             if e.errcode == 404:
