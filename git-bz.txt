@@ -214,6 +214,7 @@ edit
 
 [verse]
 'git bz edit' (<bug reference> | <commit> | <revision range>)
+'git bz edit' --fix=<bug reference> (<commit> | <revision range>)
 'git bz edit' --pushed (<commit> | <revision range>)
 
 Allows doing common operations on a Bugzilla bug without going to
