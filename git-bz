@@ -68,6 +68,11 @@ https = true
 default-priority = ---
 """
 
+CONFIG['bugzilla.redhat.com'] = \
+"""
+https = true
+"""
+
 # Default values for options that can be configured via 'git config'
 git_config = {
     'browser': 'firefox3',
