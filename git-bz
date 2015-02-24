@@ -905,6 +905,37 @@ class BugPatch(object):
 class NoXmlRpcError(Exception):
     pass
 
+class PermanentRedirector(urllib2.HTTPRedirectHandler):
+    def __init__(self, server):
+        self.server = server
+        self.current = None
+
+    def http_error_301(self, req, fp, code, msg, hdrs):
+        if self.current is not None:
+            return urllib2.HTTPRedirectHandler.http_error_301(self, req, fp, code, msg, hdrs)
+
+        # This is a bit of a hack to avoid keeping on redirecting for every
+        # request. If the server redirected the hostname with a permanent redirect,
+        # keeping the path the same, we're assume it's saying "hey, the bugzilla
+        # instance is really over here" - we don't require separate proof for every
+        # different URL.
+
+        # Protect against multiple redirects, which would confuse the logic
+        self.current = req
+        result = urllib2.HTTPRedirectHandler.http_error_301(self, req, fp, code, msg, hdrs)
+
+        old_split = urlparse.urlsplit(req.get_full_url())
+        new_split = urlparse.urlsplit(result.url)
+        new_https = new_split.scheme == 'https'
+
+        if new_split.hostname != self.server.host or new_https != self.server.https:
+            if req.get_method() == 'GET' and old_split.path == new_split.path:
+                self.server.host = new_split.hostname
+                self.server.https = new_https
+
+        self.current = None
+        return result
+
 class BugServer(object):
     def __init__(self, host, path, https, auth_user=None, auth_password=None):
         self.host = host
@@ -912,6 +943,7 @@ class BugServer(object):
         self.https = https
         self.auth_user = auth_user
         self.auth_password = auth_password
+        self.opener = urllib2.build_opener(PermanentRedirector(self))
 
         self.cookies = get_bugzilla_cookies(host)
 
@@ -938,7 +970,7 @@ class BugServer(object):
 
         response = None
         try:
-            response = urllib2.urlopen(req)
+            response = self.opener.open(req)
         except urllib2.HTTPError as err:
             raise err;
         except urllib2.URLError as err:
