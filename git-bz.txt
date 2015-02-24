@@ -291,7 +291,7 @@ per bug tracker accepted.
 
 BUG REFERENCES
 --------------
-Ways to refer to a bug:
+On the command line, there are multiple ways to refer to a bug:
 
 <id>:: bug # on the default bug tracker
 
@@ -299,7 +299,28 @@ Ways to refer to a bug:
 
 <alias>:<id>:: bug # on the given bug tracker alias (see below)
 
-<url>:: An URL of the form "http://<hostname>/show_bug.cgi?id-<id>"
+<url>:: An URL of the form "http://<hostname>/show_bug.cgi?id=<id>"
+
+git-bz will also look for bug references in the subject and body of
+commit messages. In commit messages, the following forms are recognized:
+
+<url>:: An URL of the form "http://<hostname>/show_bug.cgi?id=<id>"
+
+(Bug|bug) <id>:: bug # on the default bug tracker
+
+In commit messages, if a bug reference in either of the above forms
+is proceeded by "See" or "see" with no more than two words in-between,
+then it will be ignored. This is to allow referring to other related
+bugs without confusing git-bz. An example:
+
+------
+Fix regression in indentation
+
+Changes in the handling of tab characters (see Mozilla bug 2345) caused
+problems with leading spaces.
+
+http://bugzilla.gnome.org/show_bug.cgi?id=12345
+------
 
 [[add-url-method]]
 ADD URL METHOD
