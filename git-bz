@@ -1192,7 +1192,7 @@ class Bug(object):
             response = self.server.get_xmlrpc_proxy().Bug.create(params)
             self.id = response['id']
         except xmlrpclib.Fault, e:
-            if e.faultString.find("is no version named '") > 0:
+            if e.faultString.find("is no version named '") >= 0:
                 print >>sys.stderr, e.faultString
                 print >>sys.stderr
                 print >>sys.stderr, "You can configure a version for %s with:" % self.server.host
