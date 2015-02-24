@@ -1250,9 +1250,6 @@ class Bug(object):
         print self.get_url()
 
     def create_patch(self, description, comment, filename, data, obsoletes=[], status='none'):
-        # FIXME: Currently there is no way to set status on creation for bugzilla.gnome.org
-        # (and other bugzilla instances don't support patch status)
-
         # Bugzilla 4.2+ requires you to grab a fresh token from attachment.cgi.
         url = "/attachment.cgi?bugid=" + str(self.id) + "&action=enter"
 
@@ -1273,6 +1270,7 @@ class Bug(object):
         if token is not None:
             fields['token'] = token.group(1)
         fields['ispatch'] = '1'
+        fields['gnome_attachment_status'] = status
         fields['description'] = description
         if comment:
             fields['comment'] = comment
