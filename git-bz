@@ -1257,7 +1257,7 @@ class Bug(object):
             response = self.server.send_request("GET", url)
         except KeyboardInterrupt:
             die("Failed to retrieve attachment form: user cancelled")
-        if response.status != 200:
+        except urllib2.HTTPError as err:
             die("Failed to retrieve attachment form: %d" % response.status)
 
         token = re.search(r'<input type="hidden" name="token" value="(.+)">',
