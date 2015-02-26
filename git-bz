@@ -139,6 +139,7 @@ def git_run(command, *args, **kwargs):
     quiet = False
     input = None
     return_stderr = False
+    ignore_exit_status = False
     strip = True
     bytes = False
 
@@ -149,6 +150,8 @@ def git_run(command, *args, **kwargs):
             interactive = True
         elif k == '_return_stderr':
             return_stderr = True
+        elif k == '_ignore_exit_status':
+            ignore_exit_status = True
         elif k == '_strip':
             strip = v
         elif k == '_input':
@@ -171,7 +174,7 @@ def git_run(command, *args, **kwargs):
                     stdin=(PIPE if (input != None) else None))
     output, error = process.communicate(input)
 
-    if process.returncode != 0:
+    if not ignore_exit_status and process.returncode != 0:
         if not quiet and not interactive:
             # Using print here could result in Python adding a stray space
             # before the next print
@@ -2295,11 +2298,16 @@ def run_push(*args, **kwargs):
         options['dry'] = True
     if global_options.force:
         options['force'] = True
-    try:
-        options['_return_stderr']=True
-        out, err = git.push(*args, **options)
-    except CalledProcessError:
-        return
+
+    options['_return_stderr'] = True
+    if not dry:
+        # commits can be pushed even if other commits fail to push
+        options['_ignore_exit_status'] = True
+
+    # In the dry case, we allow CalledProcessError to throw through
+    # to distinguish failure from no commits to push
+    out, err = git.push(*args, **options)
+
     if not dry:
         # Echo the output so the user gets feedback about what happened
         print >>sys.stderr, err
@@ -2340,7 +2348,10 @@ def do_push(*args):
         # We need to push in order to find out what commits we are pushing
         # So, we push --dry first
         options = { 'dry' : True }
-        commits = run_push(*args, **options)
+        try:
+            commits = run_push(*args, **options)
+        except CalledProcessError, e:
+            sys.exit(e.returncode)
         if edit_bug(bug, fix_commits=commits):
             run_push(*args)
     else:
