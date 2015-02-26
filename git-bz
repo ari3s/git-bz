@@ -941,6 +941,14 @@ class PermanentRedirector(urllib2.HTTPRedirectHandler):
         self.current = None
         return result
 
+def _encode_quoted(m):
+    return urllib.quote(m.group(0).encode('UTF-8'))
+
+# Encodes non-ASCII characters as UTF-8 with %-escapes, but doesn't
+# change existing escapes in the URL
+def encode_utf8(url):
+    return str(re.sub('[^\x01-\x7f]+', _encode_quoted, url))
+
 class BugServer(object):
     def __init__(self, host, path, https, auth_user=None, auth_password=None):
         self.host = host
@@ -970,7 +978,7 @@ class BugServer(object):
         if self.path:
             url = self.path + url
 
-        uri = "%s://%s%s" % ("https" if self.https else "http", self.host, url);
+        uri = "%s://%s%s" % ("https" if self.https else "http", self.host.encode("idna"), encode_utf8(url))
         req = urllib2.Request(uri, data, headers)
 
         response = None
