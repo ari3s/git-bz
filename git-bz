@@ -1677,13 +1677,13 @@ def do_apply(*args):
 
         for patch in bug.patches:
             if patch.status == 'committed' or patch.status == 'rejected':
-                print "%d (skipping, %s) - %s" % (patch.attach_id, patch.status, patch.description)
+                print "%d - %s (skipping, %s)" % (patch.attach_id, patch.description, patch.status)
             else:
                 patches.append(patch)
 
         for patch in patches:
             if patch.status != 'none':
-                print "%d (%s) - %s" % (patch.attach_id, patch.status, patch.description)
+                print "%d - %s (%s)" % (patch.attach_id, patch.description, patch.status)
             else:
                 print "%d - %s" % (patch.attach_id, patch.description)
         print
