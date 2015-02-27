@@ -71,6 +71,9 @@ default-priority = ---
 CONFIG['bugzilla.redhat.com'] = \
 """
 https = true
+attachment-flag.review.id = 155
+attachment-flag.review.requesteeable = true
+attachment-flag.review.multiplicable = true
 """
 
 CONFIG["bugs.webkit.org"] = \
@@ -1837,7 +1840,7 @@ def edit_attachment_comment(bug, initial_description, initial_body):
     if flag_names:
         template.write("""# Uncomment to set flags for the attachment; flags can be set to +,- , or ?.\n""")
         template.write("""# When setting a flag to ? you can optionally specify individuals as, for example:
-#    Review: ? joe@example.com\n""")
+#    Review: ? sue@example.com, joe@example.com\n""")
         for name in flag_names:
             template.write("""#%s: ?\n""" % name)
         template.write("\n")
@@ -1883,6 +1886,7 @@ def edit_attachment_comment(bug, initial_description, initial_body):
         # that bugzilla will be able to understand.
         flag_config = attachment_flags[flag_name]
         requesteeable = flag_config.get('requesteeable', 'false')
+        multiplicable = flag_config.get('multiplicable', 'false')
 
         if len(value) > 1:
             extra = value[1:].strip()
@@ -1895,12 +1899,13 @@ def edit_attachment_comment(bug, initial_description, initial_body):
                 value = value[0]
             else:
                 requestees = [r.strip() for r in value[1:].split(',')]
-                if len(requestees) > 1:
+                if len(requestees) > 1 and multiplicable != 'true':
                     ignored_requestees = requestees[1:]
                     print "Flag '%s' cannot be requested for multiple users. Ignoring '%s' and setting value to '%s'" % (flag_name,
                                                                                                                          ', '.join(ignored_requestees),
                                                                                                                          requestees[0])
-                flags["requestee_type-%s" % flag_config['id']] = requestees[0]
+                    requestees = requestees[0:1]
+                flags["requestee_type-%s" % flag_config['id']] = ','.join(requestees)
                 value = '?'
 
         flags["flag_type-%s" % flag_config['id']] = value
