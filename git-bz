@@ -1302,7 +1302,7 @@ class Bug(object):
         except urllib2.HTTPError as err:
             die("Failed to create bug, status=%d" % err.code);
 
-        m = check_for_success(response_data, r"<title>\s*Bug\s+([0-9]+)")
+        m = check_for_success(response_data, r"<title>\s*(\S+\s+)?([0-9]+)")
         if not m:
             print response_data
             die("Failed to create bug")
@@ -1392,7 +1392,7 @@ class Bug(object):
             die ("Failed to update bug %d, status=%d" % (self.id, err.code))
 
         if not check_for_success(response_data,
-                                 r"<title>\s*Bug[\S\s]*processed\s*</title>"):
+                                 r"<title>[\S\s]{0,100}processed\s*</title>"):
 
             # Mid-air collisions would be indicated by
             # "<title>Mid-air collision!</title>"
